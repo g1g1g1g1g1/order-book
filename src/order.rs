@@ -1,10 +1,10 @@
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug)]
 pub enum Side {
     Buy,
     Sell,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Order {
     pub id: u64,
     pub side: Side,
