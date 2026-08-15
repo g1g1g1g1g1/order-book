@@ -15,19 +15,84 @@ impl OrderBook {
         }
     }
 
-    pub fn add_order(&mut self, order: Order) {
+    pub fn add_order(&mut self, mut order: Order) {
+        self.match_order(&mut order);
+
+        if order.quantity > 0 {
+            match order.side {
+                Side::Buy => {
+                    self.bids
+                    .entry(order.price)
+                    .or_default()
+                    .push_back(order);
+                }
+                Side::Sell => {
+                    self.asks
+                    .entry(order.price)
+                    .or_default()
+                    .push_back(order);
+                }
+            }
+        }
+    }
+
+    pub fn match_order(&mut self, order: &mut Order) {
         match order.side {
             Side::Buy => {
-                self.bids
-                    .entry(order.price)
-                    .or_default()
-                    .push_back(order);
+                while self.crosses(order) {
+                    let curr_best_ask = self.best_ask();
+                    
+                    if let Some(best_ask) = curr_best_ask {
+                        let curr_orders = self.asks.get_mut(&best_ask).unwrap();
+                        
+                        if let Some(resting_order) = curr_orders.front_mut() {
+                            let fulfilled_quantity = std::cmp::min(order.quantity, resting_order.quantity);
+
+                            order.quantity -= fulfilled_quantity;
+                            resting_order.quantity -= fulfilled_quantity;
+
+                            if resting_order.quantity == 0 {
+                                curr_orders.pop_front();
+
+                                if curr_orders.is_empty() {
+                                    self.asks.remove(&best_ask);
+                                }
+                            }
+
+                            if order.quantity == 0 {
+                                break;
+                            }
+                        }
+                    }
+                }
             }
             Side::Sell => {
-                self.asks
-                    .entry(order.price)
-                    .or_default()
-                    .push_back(order);
+                while self.crosses(order) {
+                    let curr_best_bid = self.best_bid();
+
+                    if let Some(best_bid) = curr_best_bid {
+                        let curr_orders = self.bids.get_mut(&best_bid).unwrap();
+
+                        if let Some(resting_order) = curr_orders.front_mut() {
+                            let fulfilled_quantity = std::cmp::min(order.quantity, resting_order.quantity);
+
+                            order.quantity -= fulfilled_quantity;
+                            resting_order.quantity -= fulfilled_quantity;
+
+                            if resting_order.quantity == 0 {
+                                curr_orders.pop_front();
+
+                                if curr_orders.is_empty() {
+                                    self.bids.remove(&best_bid);
+                                }
+                            }
+
+                            if order.quantity == 0 {
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -262,5 +327,145 @@ mod tests {
         let sell = Order::new(2, Side::Sell, 50, 1);
 
         assert!(book.crosses(&sell));
+    }
+
+    #[test]
+    fn sell_exact_fill() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Buy, 100, 1));
+        book.add_order(Order::new(2, Side::Sell, 100, 1));
+
+        assert!(book.bids.is_empty());
+        assert!(book.asks.is_empty());
+    }
+
+    #[test]
+    fn buy_exact_fill() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 1));
+        book.add_order(Order::new(2, Side::Buy, 100, 1));
+
+        assert!(book.asks.is_empty());
+        assert!(book.bids.is_empty());
+    }
+
+    #[test]
+    fn sell_partially_fills_resting_buy() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Buy, 100, 5));
+        book.add_order(Order::new(2, Side::Sell, 100, 1));
+
+        assert!(book.asks.is_empty());
+        assert_eq!(book.bids.get(&100).unwrap()[0].quantity, 4);
+    }
+
+    #[test]
+    fn buy_partially_fills_resting_sell() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 5));
+        book.add_order(Order::new(2, Side::Buy, 100, 1));
+
+        assert!(book.bids.is_empty());
+        assert_eq!(book.asks.get(&100).unwrap()[0].quantity, 4);
+    }
+
+    #[test]
+    fn sell_fully_fills_resting_buy_and_rests_remainder() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Buy, 100, 1));
+        book.add_order(Order::new(2, Side::Sell, 100, 5));
+
+        assert!(book.bids.is_empty());
+        assert_eq!(book.asks.get(&100).unwrap()[0].quantity, 4);
+    }
+
+    #[test]
+    fn buy_fully_fills_resting_sell_and_rests_remainder() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 1));
+        book.add_order(Order::new(2, Side::Buy, 100, 5));
+
+        assert!(book.asks.is_empty());
+        assert_eq!(book.bids.get(&100).unwrap()[0].quantity, 4);
+    }
+
+    #[test]
+    fn sell_matches_resting_buys_fifo() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Buy, 100, 2));
+        book.add_order(Order::new(2, Side::Buy, 100, 3));
+        book.add_order(Order::new(3, Side::Sell, 100, 4));
+
+        assert!(book.asks.is_empty());
+
+        let remaining_order = &book.bids.get(&100).unwrap()[0];
+
+        assert_eq!(remaining_order.id, 2);
+        assert_eq!(remaining_order.quantity, 1);
+    }
+
+    #[test]
+    fn buy_matches_resting_sells_fifo() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 2));
+        book.add_order(Order::new(2, Side::Sell, 100, 3));
+        book.add_order(Order::new(3, Side::Buy, 100, 4));
+
+        assert!(book.bids.is_empty());
+
+        let remaining_order = &book.asks.get(&100).unwrap()[0];
+
+        assert_eq!(remaining_order.id, 2);
+        assert_eq!(remaining_order.quantity, 1);
+    }
+
+    #[test]
+    fn sell_matches_across_multiple_price_levels() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Buy, 110, 2));
+        book.add_order(Order::new(2, Side::Buy, 105, 3));
+        book.add_order(Order::new(3, Side::Buy, 100, 4));
+
+        book.add_order(Order::new(4, Side::Sell, 105, 4));
+
+        assert!(!book.bids.contains_key(&110));
+
+        let orders_at_105 = book.bids.get(&105).unwrap();
+        assert_eq!(orders_at_105[0].id, 2);
+        assert_eq!(orders_at_105[0].quantity, 1);
+
+        assert_eq!(book.bids.get(&100).unwrap()[0].quantity, 4);
+
+        assert!(book.asks.is_empty());
+    }
+
+    #[test]
+    fn buy_matches_across_multiple_price_levels() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 2));
+        book.add_order(Order::new(2, Side::Sell, 105, 3));
+        book.add_order(Order::new(3, Side::Sell, 110, 4));
+
+        book.add_order(Order::new(4, Side::Buy, 105, 4));
+
+        assert!(!book.asks.contains_key(&100));
+
+        let orders_at_105 = book.asks.get(&105).unwrap();
+        assert_eq!(orders_at_105[0].id, 2);
+        assert_eq!(orders_at_105[0].quantity, 1);
+
+        assert_eq!(book.asks.get(&110).unwrap()[0].quantity, 4);
+
+        assert!(book.bids.is_empty());
     }
 }
