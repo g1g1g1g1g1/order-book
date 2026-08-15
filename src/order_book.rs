@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, VecDeque}, thread::current};
+use std::{collections::{BTreeMap, VecDeque}};
 use crate::order::{Order, Side};
 
 #[derive(Debug)]
