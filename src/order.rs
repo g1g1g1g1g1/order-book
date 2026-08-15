@@ -9,7 +9,8 @@ pub struct Order {
     pub id: u64,
     pub side: Side,
     pub price: u64,
-    pub quantity: u64,
+    pub initial_quantity: u64,
+    pub remaining_quantity: u64,
 }
 
 impl Order {
@@ -18,7 +19,8 @@ impl Order {
             id,
             side,
             price,
-            quantity,
+            initial_quantity: quantity,
+            remaining_quantity: quantity,
         }
     }
 }

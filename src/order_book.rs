@@ -19,7 +19,7 @@ impl OrderBook {
     pub fn add_order(&mut self, mut order: Order) -> Vec<Trade> {
         let trades = self.match_order(&mut order);
 
-        if order.quantity > 0 {
+        if order.remaining_quantity > 0 {
             match order.side {
                 Side::Buy => {
                     self.bids
@@ -51,15 +51,15 @@ impl OrderBook {
                         let curr_orders = self.asks.get_mut(&best_ask).unwrap();
                         
                         if let Some(resting_order) = curr_orders.front_mut() {
-                            let fulfilled_quantity = std::cmp::min(order.quantity, resting_order.quantity);
+                            let fulfilled_quantity = std::cmp::min(order.remaining_quantity, resting_order.remaining_quantity);
 
                             let curr_trade = Trade::new(order.id, resting_order.id, best_ask, fulfilled_quantity);
                             trades.push(curr_trade);
 
-                            order.quantity -= fulfilled_quantity;
-                            resting_order.quantity -= fulfilled_quantity;
+                            order.remaining_quantity -= fulfilled_quantity;
+                            resting_order.remaining_quantity -= fulfilled_quantity;
 
-                            if resting_order.quantity == 0 {
+                            if resting_order.remaining_quantity == 0 {
                                 curr_orders.pop_front();
 
                                 if curr_orders.is_empty() {
@@ -67,7 +67,7 @@ impl OrderBook {
                                 }
                             }
 
-                            if order.quantity == 0 {
+                            if order.remaining_quantity == 0 {
                                 break;
                             }
                         }
@@ -82,15 +82,15 @@ impl OrderBook {
                         let curr_orders = self.bids.get_mut(&best_bid).unwrap();
 
                         if let Some(resting_order) = curr_orders.front_mut() {
-                            let fulfilled_quantity = std::cmp::min(order.quantity, resting_order.quantity);
+                            let fulfilled_quantity = std::cmp::min(order.remaining_quantity, resting_order.remaining_quantity);
 
                             let curr_trade = Trade::new(resting_order.id, order.id, best_bid, fulfilled_quantity);
                             trades.push(curr_trade);
 
-                            order.quantity -= fulfilled_quantity;
-                            resting_order.quantity -= fulfilled_quantity;
+                            order.remaining_quantity -= fulfilled_quantity;
+                            resting_order.remaining_quantity -= fulfilled_quantity;
 
-                            if resting_order.quantity == 0 {
+                            if resting_order.remaining_quantity == 0 {
                                 curr_orders.pop_front();
 
                                 if curr_orders.is_empty() {
@@ -98,7 +98,7 @@ impl OrderBook {
                                 }
                             }
 
-                            if order.quantity == 0 {
+                            if order.remaining_quantity == 0 {
                                 break;
                             }
                         }
@@ -372,7 +372,7 @@ mod tests {
         book.add_order(Order::new(2, Side::Sell, 100, 1));
 
         assert!(book.asks.is_empty());
-        assert_eq!(book.bids.get(&100).unwrap()[0].quantity, 4);
+        assert_eq!(book.bids.get(&100).unwrap()[0].remaining_quantity, 4);
     }
 
     #[test]
@@ -383,7 +383,7 @@ mod tests {
         book.add_order(Order::new(2, Side::Buy, 100, 1));
 
         assert!(book.bids.is_empty());
-        assert_eq!(book.asks.get(&100).unwrap()[0].quantity, 4);
+        assert_eq!(book.asks.get(&100).unwrap()[0].remaining_quantity, 4);
     }
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
         book.add_order(Order::new(2, Side::Sell, 100, 5));
 
         assert!(book.bids.is_empty());
-        assert_eq!(book.asks.get(&100).unwrap()[0].quantity, 4);
+        assert_eq!(book.asks.get(&100).unwrap()[0].remaining_quantity, 4);
     }
 
     #[test]
@@ -405,7 +405,7 @@ mod tests {
         book.add_order(Order::new(2, Side::Buy, 100, 5));
 
         assert!(book.asks.is_empty());
-        assert_eq!(book.bids.get(&100).unwrap()[0].quantity, 4);
+        assert_eq!(book.bids.get(&100).unwrap()[0].remaining_quantity, 4);
     }
 
     #[test]
@@ -421,7 +421,7 @@ mod tests {
         let remaining_order = &book.bids.get(&100).unwrap()[0];
 
         assert_eq!(remaining_order.id, 2);
-        assert_eq!(remaining_order.quantity, 1);
+        assert_eq!(remaining_order.remaining_quantity, 1);
     }
 
     #[test]
@@ -437,7 +437,7 @@ mod tests {
         let remaining_order = &book.asks.get(&100).unwrap()[0];
 
         assert_eq!(remaining_order.id, 2);
-        assert_eq!(remaining_order.quantity, 1);
+        assert_eq!(remaining_order.remaining_quantity, 1);
     }
 
     #[test]
@@ -454,9 +454,9 @@ mod tests {
 
         let orders_at_105 = book.bids.get(&105).unwrap();
         assert_eq!(orders_at_105[0].id, 2);
-        assert_eq!(orders_at_105[0].quantity, 1);
+        assert_eq!(orders_at_105[0].remaining_quantity, 1);
 
-        assert_eq!(book.bids.get(&100).unwrap()[0].quantity, 4);
+        assert_eq!(book.bids.get(&100).unwrap()[0].remaining_quantity, 4);
 
         assert!(book.asks.is_empty());
     }
@@ -475,9 +475,9 @@ mod tests {
 
         let orders_at_105 = book.asks.get(&105).unwrap();
         assert_eq!(orders_at_105[0].id, 2);
-        assert_eq!(orders_at_105[0].quantity, 1);
+        assert_eq!(orders_at_105[0].remaining_quantity, 1);
 
-        assert_eq!(book.asks.get(&110).unwrap()[0].quantity, 4);
+        assert_eq!(book.asks.get(&110).unwrap()[0].remaining_quantity, 4);
 
         assert!(book.bids.is_empty());
     }
