@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::{collections::{BTreeMap, VecDeque}, thread::current};
 use crate::order::{Order, Side};
 
 #[derive(Debug)]
@@ -83,6 +83,30 @@ impl OrderBook {
 
     pub fn best_ask(&self) -> Option<u64> {
         self.asks.keys().next().copied()
+    }
+
+    pub fn crosses(&self, order: &Order) -> bool {
+        let current_best_bid = self.best_bid();
+        let current_best_ask = self.best_ask();
+
+        match order.side {
+            Side::Buy => {
+                if let Some(best_ask) = current_best_ask {
+                    if order.price >= best_ask {
+                        return true;
+                    }
+                }
+            }
+            Side::Sell => {
+                if let Some(best_bid) = current_best_bid {
+                    if order.price <= best_bid {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -170,5 +194,73 @@ mod tests {
 
         assert!(!book.bids.contains_key(&100));
         assert!(!book.asks.contains_key(&100));
+    }
+
+    #[test]
+    fn crosses_empty_book() {
+        let book = OrderBook::new();
+        let order = Order::new(1, Side::Buy, 20, 1);
+
+        assert!(!book.crosses(&order));
+    }
+
+    #[test]
+    fn crosses_buy_below_best_ask() {
+        let mut book = OrderBook::new();
+        book.add_order(Order::new(1, Side::Sell, 100, 1));
+
+        let buy = Order::new(2, Side::Buy, 70, 1);
+
+        assert!(!book.crosses(&buy));
+    }
+
+    #[test]
+    fn crosses_buy_equal_to_best_ask() {
+        let mut book = OrderBook::new();
+        book.add_order(Order::new(1, Side::Sell, 100, 1));
+
+        let buy = Order::new(2, Side::Buy, 100, 1);
+
+        assert!(book.crosses(&buy));
+    }
+
+    #[test]
+    fn crosses_buy_above_best_ask() {
+        let mut book = OrderBook::new();
+        book.add_order(Order::new(1, Side::Sell, 100, 1));
+
+        let buy = Order::new(2, Side::Buy, 110, 1);
+
+        assert!(book.crosses(&buy));
+    }
+
+    #[test]
+    fn crosses_sell_above_best_bid() {
+        let mut book = OrderBook::new();
+        book.add_order(Order::new(1, Side::Buy, 100, 1));
+
+        let sell = Order::new(2, Side::Sell, 200, 1);
+
+        assert!(!book.crosses(&sell));
+    }
+
+    #[test]
+    fn crosses_sell_equal_to_best_bid() {
+        let mut book = OrderBook::new();
+        book.add_order(Order::new(1, Side::Buy, 100, 1));
+
+        let sell = Order::new(2, Side::Sell, 100, 1);
+
+        assert!(book.crosses(&sell));
+    }
+
+    #[test]
+    fn crosses_sell_below_best_bid() {
+        let mut book = OrderBook::new();
+        book.add_order(Order::new(1, Side::Buy, 100, 1));
+
+        let sell = Order::new(2, Side::Sell, 50, 1);
+
+        assert!(book.crosses(&sell));
     }
 }
