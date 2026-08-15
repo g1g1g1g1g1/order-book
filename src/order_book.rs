@@ -1,5 +1,6 @@
 use std::{collections::{BTreeMap, VecDeque}};
 use crate::order::{Order, Side};
+use crate::trade::Trade;
 
 #[derive(Debug)]
 pub struct OrderBook {
@@ -15,8 +16,8 @@ impl OrderBook {
         }
     }
 
-    pub fn add_order(&mut self, mut order: Order) {
-        self.match_order(&mut order);
+    pub fn add_order(&mut self, mut order: Order) -> Vec<Trade> {
+        let trades = self.match_order(&mut order);
 
         if order.quantity > 0 {
             match order.side {
@@ -34,9 +35,13 @@ impl OrderBook {
                 }
             }
         }
+
+        trades
     }
 
-    pub fn match_order(&mut self, order: &mut Order) {
+    pub fn match_order(&mut self, order: &mut Order) -> Vec<Trade> {
+        let mut trades = Vec::new();
+
         match order.side {
             Side::Buy => {
                 while self.crosses(order) {
@@ -47,6 +52,9 @@ impl OrderBook {
                         
                         if let Some(resting_order) = curr_orders.front_mut() {
                             let fulfilled_quantity = std::cmp::min(order.quantity, resting_order.quantity);
+
+                            let curr_trade = Trade::new(order.id, resting_order.id, best_ask, fulfilled_quantity);
+                            trades.push(curr_trade);
 
                             order.quantity -= fulfilled_quantity;
                             resting_order.quantity -= fulfilled_quantity;
@@ -76,6 +84,9 @@ impl OrderBook {
                         if let Some(resting_order) = curr_orders.front_mut() {
                             let fulfilled_quantity = std::cmp::min(order.quantity, resting_order.quantity);
 
+                            let curr_trade = Trade::new(resting_order.id, order.id, best_bid, fulfilled_quantity);
+                            trades.push(curr_trade);
+
                             order.quantity -= fulfilled_quantity;
                             resting_order.quantity -= fulfilled_quantity;
 
@@ -95,6 +106,8 @@ impl OrderBook {
                 }
             }
         }
+
+        trades
     }
 
     pub fn cancel_order(&mut self, order_id: u64) -> bool {
@@ -467,5 +480,86 @@ mod tests {
         assert_eq!(book.asks.get(&110).unwrap()[0].quantity, 4);
 
         assert!(book.bids.is_empty());
+    }
+
+    #[test]
+    fn exact_fill_returns_single_trade() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 2));
+
+        let trades = book.add_order(Order::new(2, Side::Buy, 105, 2));
+
+        assert_eq!(trades.len(), 1);
+
+        let trade = &trades[0];
+
+        assert_eq!(trade.buy_order_id, 2);
+        assert_eq!(trade.sell_order_id, 1);
+        assert_eq!(trade.price, 100);
+        assert_eq!(trade.quantity, 2);
+    }
+
+    #[test]
+    fn incoming_sell_returns_correct_trade() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Buy, 100, 3));
+
+        let trades = book.add_order(Order::new(2, Side::Sell, 95, 2));
+
+        assert_eq!(trades.len(), 1);
+
+        let trade = &trades[0];
+
+        assert_eq!(trade.buy_order_id, 1);
+        assert_eq!(trade.sell_order_id, 2);
+        assert_eq!(trade.price, 100);
+        assert_eq!(trade.quantity, 2);
+    }
+
+    #[test]
+    fn partial_fill_returns_correct_quantity() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 5));
+
+        let trades = book.add_order(Order::new(2, Side::Buy, 100, 2));
+
+        assert_eq!(trades.len(), 1);
+        assert_eq!(trades[0].quantity, 2);
+    }
+
+    #[test]
+    fn one_order_can_generate_multiple_trades() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 2));
+        book.add_order(Order::new(2, Side::Sell, 101, 3));
+
+        let trades = book.add_order(Order::new(3, Side::Buy, 105, 4));
+
+        assert_eq!(trades.len(), 2);
+
+        assert_eq!(trades[0].buy_order_id, 3);
+        assert_eq!(trades[0].sell_order_id, 1);
+        assert_eq!(trades[0].price, 100);
+        assert_eq!(trades[0].quantity, 2);
+
+        assert_eq!(trades[1].buy_order_id, 3);
+        assert_eq!(trades[1].sell_order_id, 2);
+        assert_eq!(trades[1].price, 101);
+        assert_eq!(trades[1].quantity, 2);
+    }
+
+    #[test]
+    fn non_crossing_order_returns_no_trades() {
+        let mut book = OrderBook::new();
+
+        book.add_order(Order::new(1, Side::Sell, 100, 5));
+
+        let trades = book.add_order(Order::new(2, Side::Buy, 90, 2));
+
+        assert!(trades.is_empty());
     }
 }
